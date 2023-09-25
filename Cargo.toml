@@ -1,0 +1,12 @@
+[package]
+name = "csc443"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+scroll = "0.11.0"
+positioned-io = "0.3.1"
+rayon = "1.7.0"
+itertools = "0.10.5"
