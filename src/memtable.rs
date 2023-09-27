@@ -180,7 +180,9 @@ impl MemoryTable{
         let bytes = self.to_vec();
         let file_size = bytes.len();
         let mut file = std::fs::File::create(&file_name).unwrap();
+        let mut file = BufWriter::new(file);
         file.write_all(&bytes).unwrap();
+        file.flush().expect("did not flush");
         SSTable{
             file_name: file_name,
             file_size: file_size
@@ -303,7 +305,7 @@ impl SSTable{
 
 
 
-struct Database{
+pub struct Database{
     table_size: u64,
     path: String,
     mem_table: MemoryTable,
@@ -312,7 +314,7 @@ struct Database{
 
 impl Database {
 
-    fn new(path: String, table_size: u64) -> Self {
+    pub fn new(path: String, table_size: u64) -> Self {
         let path = Path::new(&path);
         if path.exists() {
             std::fs::remove_dir_all(path).unwrap();
@@ -321,7 +323,7 @@ impl Database {
         Self::from_disk(path.to_str().unwrap().to_string(), table_size)
 
     }
-    fn from_disk(path: String, table_size: u64) -> Self {
+    pub fn from_disk(path: String, table_size: u64) -> Self {
         let items = std::fs::read_dir(path.clone()).unwrap();
         let mut ss_table_names = Vec::new();
         for item in items {
@@ -342,12 +344,17 @@ impl Database {
         );
         Database{
             table_size,
-            path: path,
+            path: path.clone(),
             mem_table: MemoryTable::new(10000),
-            ss_tables: ss_table_names
+            ss_tables: ss_table_names.into_iter().map(|name| {
+                SSTable{
+                    file_name: format!("{}/{}", path.clone(), name.file_name),
+                    file_size: name.file_size
+                }
+            }).collect()
         }
     }
-    fn insert(&mut self, key: i64, value: i64) {
+    pub fn insert(&mut self, key: i64, value: i64) {
         if self.mem_table.insert(key, value){
         } else {
             let new_stable = self.mem_table.create_stable(format!("{}/{}.sst", self.path, self.ss_tables.len()));
@@ -357,7 +364,7 @@ impl Database {
         }
     }
 
-    fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)>{
+    pub fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)>{
         let mut scanned_tables = self.ss_tables.par_iter().map(
             |ss_table| {
                 ss_table.scan(key1, key2)
@@ -366,7 +373,7 @@ impl Database {
         scanned_tables.into_iter().kmerge_by(|a, b| a.0 < b.0).collect()
     }
 
-    fn get(&self, key: i64) -> Option<i64>{
+    pub fn get(&self, key: i64) -> Option<i64>{
         let mut result = self.mem_table.get(key);
         if result.is_some() {
             return result;
@@ -377,8 +384,8 @@ impl Database {
             }
         )
     }
-    fn close(&mut self){
-        self.ss_tables.push(self.mem_table.create_stable(format!("{}.sst", self.ss_tables.len())));
+    pub fn close(&mut self){
+        self.ss_tables.push(self.mem_table.create_stable(format!("{}/{}.sst", self.path, self.ss_tables.len())));
     }
 }
 
@@ -410,13 +417,13 @@ mod tests {
 
     #[test]
     fn test_database(){
-        let mut db = Database::from_disk("Database".to_string(), 10000);
-        // for i in (0..10000000).map(|x| x * 2) {
-        //     db.insert(i, i);
-        // }
-        // for i in (0..5000000).map(|x| x * 2 + 1) {
-        //     db.insert(i, i);
-        // }
+        let mut db = Database::new("Database".to_string(), 10000);
+        for i in (0..10000000).map(|x| x * 2) {
+            db.insert(i, i);
+        }
+        for i in (0..5000000).map(|x| x * 2 + 1) {
+            db.insert(i, i);
+        }
         dbg!("reached");
         println!("{:?}", db.scan(10010, 29900));
         println!("{:?}", db.get(1001));
