@@ -1,5 +1,6 @@
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::fmt::format;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use positioned_io::ReadAt;
@@ -7,8 +8,10 @@ use positioned_io::RandomAccessFile;
 use rayon::prelude::*;
 use itertools::Itertools;
 use std::io::BufWriter;
+use arrayvec::ArrayVec;
 
 const PAGE_SIZE: usize = 1000 * 4;
+const VECTOR_SIZE: usize = 1000 * 4 / 16;
 type Child = Option<Box<Node>>;
 
 struct Node{
@@ -18,6 +21,19 @@ struct Node{
     left: Child,
     right: Child
 }
+
+// struct Node_Iterator{
+//     node: Child,
+//     left_iterator: Op
+// }
+//
+// impl Iterator for Node_Iterator{
+//     type Item = (i64, i64);
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//
+//     }
+// }
 
 impl Node{
 
@@ -137,6 +153,16 @@ impl Node{
             }
         }
     }
+    fn write_all(&self, mut buffer: & mut BufWriter<File>){
+        if let Some(left) = &self.left {
+            left.write_all(buffer);
+        }
+        buffer.write_all(&self.key.to_ne_bytes()).expect("did not write");
+        buffer.write_all(&self.value.to_ne_bytes()).expect("did not write");
+        if let Some(right) = &self.right {
+            right.write_all(buffer);
+        }
+    }
 }
 
 struct MemoryTable{
@@ -163,9 +189,9 @@ impl MemoryTable{
         true
     }
 
-    fn to_vec(&self) -> Vec<u8>{
+    fn to_vec_2(&self) -> Vec<i64>{
         let tuples = Node::scan(&self.root, i64::MIN, i64::MAX);
-        tuples_to_bytes(tuples)
+        tuples.iter().flat_map(|(key, value)| vec![*key, *value]).collect()
     }
 
     fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)>{
@@ -177,12 +203,30 @@ impl MemoryTable{
     }
 
     fn create_stable(&self, file_name: String) -> SSTable{
-        let bytes = self.to_vec();
-        let file_size = bytes.len();
+        // println!("started writing");
+
+        // let bytes = self.to_vec();
+        // let bytes = self.scan(i64::MIN, i64::MAX).into_iter().flat_map(|(key, value)| {
+        //     let mut result = [0; 16];
+        //     result[..8].copy_from_slice(&key.to_ne_bytes());
+        //     result[8..].copy_from_slice(&value.to_ne_bytes());
+        //     result
+        // }).collect::<Vec<_>>();
+        let file_size = self.cur_size * 16;
         let mut file = std::fs::File::create(&file_name).unwrap();
         let mut file = BufWriter::new(file);
-        file.write_all(&bytes).unwrap();
+        match &self.root {
+            None => {}
+            Some(i) => {
+                i.write_all(&mut file);
+            }
+        }
+        // for (key, value) in items {
+        //     file.write_all(&key.to_ne_bytes()).expect("did not write");
+        //     file.write_all(&value.to_ne_bytes()).expect("did not write");
+        // }
         file.flush().expect("did not flush");
+        // println!("ended writing");
         SSTable{
             file_name: file_name,
             file_size: file_size
@@ -190,28 +234,6 @@ impl MemoryTable{
     }
 }
 
-fn tuples_to_bytes(tuples: Vec<(i64, i64)>) -> Vec<u8>{
-    tuples.par_iter().flat_map(
-        |(key, value)| {
-            let mut key_bytes = key.to_be_bytes().to_vec();
-            let mut value_bytes = value.to_be_bytes().to_vec();
-            key_bytes.append(&mut value_bytes);
-            key_bytes
-        }
-    ).collect()
-}
-
-fn bytes_to_tuples(bytes: Vec<u8>) -> Vec<(i64, i64)>{
-    let mut result = vec![];
-    let mut i = 0;
-    while i < bytes.len() {
-        let key = i64::from_be_bytes(bytes[i..i+8].try_into().unwrap());
-        let value = i64::from_be_bytes(bytes[i+8..i+16].try_into().unwrap());
-        result.push((key, value));
-        i += 16;
-    }
-    result
-}
 #[derive(Debug)]
 struct SSTable{
     file_name: String,
@@ -219,17 +241,33 @@ struct SSTable{
 }
 
 impl SSTable{
-    fn get_page(&self, key: u64) -> Vec<(i64, i64)>{
+    fn get_all(&self) -> Vec<(i64, i64)>{
         let file = RandomAccessFile::open(&self.file_name).unwrap();
+        let pages_to_search: Vec<_> = (0..(self.file_size + (PAGE_SIZE - 1)) / PAGE_SIZE).collect();
+        let mut result = Vec::new();
+        for page_num in pages_to_search {
+            let page = self.get_page(page_num as u64, &file);
+            result.extend(page);
+        }
+        result
+    }
+    fn get_page(&self, key: u64, file: &RandomAccessFile) -> ArrayVec<(i64, i64), VECTOR_SIZE>{
         let mut bytes: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
         let bytes_read = file.read_at(key * PAGE_SIZE as u64, &mut bytes).unwrap();
-        bytes_to_tuples(bytes[..bytes_read].to_vec())
+        let mut vec = ArrayVec::new();
+        for i in (0..bytes_read).step_by(16) {
+            let key = i64::from_ne_bytes(bytes[i..i+8].try_into().unwrap());
+            let value = i64::from_ne_bytes(bytes[i+8..i+16].try_into().unwrap());
+            vec.push((key, value));
+        }
+        vec
     }
     fn get_value(&self, key: i64) -> Option<i64> {
+        let file = RandomAccessFile::open(&self.file_name).unwrap();
         let pages_to_search: Vec<_> = (0..(self.file_size + (PAGE_SIZE - 1)) / PAGE_SIZE).collect();
         let mut result = None;
         _ = pages_to_search.binary_search_by(|&page_num| {
-            let page = self.get_page(page_num as u64);
+            let page = self.get_page(page_num as u64, &file);
             let first_key = page.first().unwrap().0;
             let last_key = page.last().unwrap().0;
 
@@ -252,11 +290,12 @@ impl SSTable{
         result
     }
     fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)>{
+        let file = RandomAccessFile::open(&self.file_name).unwrap();
         let pages_to_search: Vec<_> = (0..(self.file_size + (PAGE_SIZE - 1)) / PAGE_SIZE).collect();
-        let mut first_page = Vec::new();
+        let mut first_page = ArrayVec::new();
         let mut cur_page_index = pages_to_search.len();
         _ = pages_to_search.binary_search_by(|&page_num| {
-            let page = self.get_page(page_num as u64);
+            let page = self.get_page(page_num as u64,&file);
             let first_key = page.first().unwrap().0;
             let last_key = page.last().unwrap().0;
 
@@ -277,7 +316,7 @@ impl SSTable{
             return vec![];
         }
         let first_page_starting_element_index = first_page.partition_point(|&(key, _)| key < key1);
-        let mut most_recent_page = first_page[first_page_starting_element_index..].to_vec();
+        let mut most_recent_page: ArrayVec<(i64, i64), VECTOR_SIZE> = first_page[first_page_starting_element_index..].try_into().unwrap();
         let mut result = Vec::new();
         loop {
             // if most_recent_page.last().is_none() {
@@ -290,11 +329,11 @@ impl SSTable{
                 break;
             }
             result.extend(most_recent_page);
-            if cur_page_index == pages_to_search.len() {
+            cur_page_index += 1;
+            if cur_page_index == pages_to_search.len()  {
                 break;
             }
-            most_recent_page = self.get_page(pages_to_search[cur_page_index] as u64);
-            cur_page_index += 1;
+            most_recent_page = self.get_page(pages_to_search[cur_page_index] as u64, &file);
         }
         result
     }
@@ -369,7 +408,8 @@ impl Database {
             |ss_table| {
                 ss_table.scan(key1, key2)
             }).collect::<Vec<_>>();
-        scanned_tables.push(Node::scan(&self.mem_table.root, key1, key2));
+        let value = Node::scan(&self.mem_table.root, key1, key2);
+        scanned_tables.push(value);
         scanned_tables.into_iter().kmerge_by(|a, b| a.0 < b.0).collect()
     }
 
@@ -397,11 +437,18 @@ mod tests {
     #[test]
     fn test_insert() {
         let mut node = Node::new(1, 1);
-        for i in 2..30{
+        for i in -10000..10000{
             node = Node::insert(Some(node), i, i);
         }
-        node.print_tree(0);
-        println!("{:?}", Node::scan(&Some(node), 10, 20));
+        // dbg!(Node::scan(&Some(node), -10, 10000));
+        let mut writer = BufWriter::new(File::create("test.txt").unwrap());
+        node.write_all(&mut writer);
+        let ss_table = SSTable{
+            file_name: "test.txt".to_string(),
+            file_size: 10000 * 16 * 2
+        };
+        // dbg!(ss_table.get_all());
+        dbg!(ss_table.scan(-10, 10000));
     }
 
     #[test]
@@ -411,7 +458,7 @@ mod tests {
             mem_table.insert(i, i);
         }
         let ss_table = mem_table.create_stable("test".to_string());
-        println!("{:?}", ss_table.scan(1001, 99900));
+        println!("{:?}", ss_table.scan(0, 99900));
         // println!("{:?}", ss_table.scan(10, 100));
     }
 
