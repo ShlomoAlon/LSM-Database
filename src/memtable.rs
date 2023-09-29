@@ -10,8 +10,8 @@ use itertools::Itertools;
 use std::io::BufWriter;
 use arrayvec::ArrayVec;
 
-const PAGE_SIZE: usize = 1000 * 4;
-const VECTOR_SIZE: usize = 1000 * 4 / 16;
+const PAGE_SIZE: usize = 1024;
+const VECTOR_SIZE: usize = PAGE_SIZE / 16;
 type Child = Option<Box<Node>>;
 
 struct Node{

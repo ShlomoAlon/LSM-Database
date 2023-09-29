@@ -12,7 +12,7 @@ mod api;
 
 fn main() {
 
-    let mut range = (-1000000..1000000).collect::<Vec<i64>>();
+    let mut range = (-10000000..10000000).collect::<Vec<i64>>();
     let mut rng = rand::thread_rng();
     range.shuffle(&mut rng);
     // dbg!(range.clone());
