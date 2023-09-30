@@ -296,6 +296,7 @@ impl SSTable {
             println!("read");
             file
         });
+
         for i in (0..s.len()).step_by(16) {
             let key = i64::from_ne_bytes(s[i..i + 8].try_into().unwrap());
             let value = i64::from_ne_bytes(s[i + 8..i + 16].try_into().unwrap());
