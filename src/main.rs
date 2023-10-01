@@ -12,7 +12,7 @@ mod api;
 
 fn main() {
 
-    let mut range = (-10000000..10000000).collect::<Vec<i64>>();
+    let mut range = (-100000..100000).collect::<Vec<i64>>();
     let mut rng = rand::thread_rng();
     range.shuffle(&mut rng);
     // dbg!(range.clone());
@@ -30,11 +30,11 @@ fn main() {
     // }
     dbg!("reached\n");
     let first = std::time::Instant::now();
-    println!("insertion time: {:?}\n", first.duration_since(start));
+    // println!("insertion time: {:?}\n", first.duration_since(start));
     for i in 0..10000{
         db.scan(0, 1000);
     }
-    let one = db.scan(0, 100000);
+    let one = db.scan(99990, 100000);
     let two = db.scan(-100000, 1000);
     let three = db.scan(-100000, 1000);
     let four = db.scan(-1000, 100000);
@@ -55,7 +55,7 @@ fn main() {
     println!("search time: {:?}\n", second.duration_since(first));
     // println!("{:?}", db.get(1001));
     // println!("{:?}", db.get(9999900));
-    // println!("{:?}", one);
+    println!("{:?}", one);
     // println!("{:?}", two);
     // println!("{:?}", three);
     // println!("{:?}", four);

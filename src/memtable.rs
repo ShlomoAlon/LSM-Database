@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
 use futures::io::AsyncWriteExt;
-use glommio::io::{DmaStreamWriter, ImmutableFile, ImmutableFileBuilder, ReadResult};
+// use glommio::io::{DmaStreamWriter, ImmutableFile, ImmutableFileBuilder, OpenOptions, ReadResult};
 use itertools::Itertools;
 use positioned_io::RandomAccessFile;
 use positioned_io::ReadAt;
@@ -11,17 +11,24 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
+use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 use futures::executor::block_on;
 // use futures_lite::io::AsyncWriteExt;
 use glommio::{
     io::{DmaFile, DmaStreamWriterBuilder},
     LocalExecutor,
 };
+// use glommio::ResourceType::File;
 
 const PAGE_SIZE: usize = 1024 * 4;
 const VECTOR_SIZE: usize = PAGE_SIZE / 16;
 type Child = Option<Box<Node>>;
 
+#[repr(C, align(4096))]
+struct Page{
+    data: [u8; PAGE_SIZE],
+}
 struct Node {
     key: i64,
     value: i64,
@@ -305,12 +312,14 @@ impl SSTable {
         vec
     }
     fn get_page(&self, key: u64, file: &RandomAccessFile) -> ArrayVec<(i64, i64), VECTOR_SIZE> {
-        let mut bytes: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
-        let bytes_read = file.read_at(key * PAGE_SIZE as u64, &mut bytes).unwrap();
+        let mut bytes: Page = Page{
+            data: [0; PAGE_SIZE]
+        };
+        let bytes_read = file.read_at(key * PAGE_SIZE as u64, &mut bytes.data).unwrap();
         let mut vec = ArrayVec::new();
         for i in (0..bytes_read).step_by(16) {
-            let key = i64::from_ne_bytes(bytes[i..i + 8].try_into().unwrap());
-            let value = i64::from_ne_bytes(bytes[i + 8..i + 16].try_into().unwrap());
+            let key = i64::from_ne_bytes(bytes.data[i..i + 8].try_into().unwrap());
+            let value = i64::from_ne_bytes(bytes.data[i + 8..i + 16].try_into().unwrap());
             vec.push((key, value));
         }
         vec
@@ -320,9 +329,7 @@ impl SSTable {
         let pages_to_search: Vec<_> = (0..(self.file_size + (PAGE_SIZE - 1)) / PAGE_SIZE).collect();
         let mut result = None;
         _ = pages_to_search.binary_search_by(|&page_num| {
-            println!("getting page");
             let page = self.get_page(page_num as u64, &file);
-            println!("got page");
             let first_key = page.first().unwrap().0;
             let last_key = page.last().unwrap().0;
 
@@ -346,16 +353,17 @@ impl SSTable {
     }
     fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)> {
         let executor = LocalExecutor::default();
-        let file = executor.run(async {
-            DmaFile::open(&self.file_name).await.unwrap()
-        });
+        // let file = executor.run(async {
+        //     DmaFile::open(&self.file_name).await.unwrap()
+        // });
+        let file: File = OpenOptions::new().read(true).custom_flags(libc::O_DIRECT).open(&self.file_name).unwrap();
+        // let file = File::open(&self.file_name).unwrap();
+        let file = RandomAccessFile::try_new(file).unwrap();
         let pages_to_search: Vec<_> = (0..(self.file_size + (PAGE_SIZE - 1)) / PAGE_SIZE).collect();
         let mut first_page = ArrayVec::new();
         let mut cur_page_index = pages_to_search.len();
         _ = pages_to_search.binary_search_by(|&page_num| {
-            println!("getting page");
-            let page = self.get_page_2(page_num as u64, &file);
-            println!("got page");
+            let page = self.get_page(page_num as u64, &file);
             let first_key = page.first().unwrap().0;
             let last_key = page.last().unwrap().0;
 
@@ -397,7 +405,7 @@ impl SSTable {
             if cur_page_index == pages_to_search.len() {
                 break;
             }
-            most_recent_page = self.get_page_2(pages_to_search[cur_page_index] as u64, &file);
+            most_recent_page = self.get_page(pages_to_search[cur_page_index] as u64, &file);
         }
         result
     }
