@@ -18,4 +18,5 @@ glommio = "0.8.0"
 futures-lite = "1.13.0"
 futures = { version = "0.3.28", features = [] }
 libc = "0.2.148"
+genawaiter = "0.99.1"
 

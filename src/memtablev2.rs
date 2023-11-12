@@ -6,6 +6,7 @@ use positioned_io::RandomAccessFile;
 use positioned_io::ReadAt;
 use rayon::prelude::*;
 use std::cmp::Ordering::{Equal, Greater, Less};
+use std::fmt::format;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
@@ -175,20 +176,6 @@ impl Node {
             right.get_all(vec);
         }
     }
-    fn write_all(&self, mut buffer: &mut BufWriter<File>) {
-        if let Some(left) = &self.left {
-            left.write_all(buffer);
-        }
-        buffer
-            .write_all(&self.key.to_ne_bytes())
-            .expect("did not write");
-        buffer
-            .write_all(&self.value.to_ne_bytes())
-            .expect("did not write");
-        if let Some(right) = &self.right {
-            right.write_all(buffer);
-        }
-    }
 }
 
 struct MemoryTable {
@@ -215,14 +202,6 @@ impl MemoryTable {
         true
     }
 
-    fn to_vec_2(&self) -> Vec<i64> {
-        let tuples = Node::scan(&self.root, i64::MIN, i64::MAX);
-        tuples
-            .iter()
-            .flat_map(|(key, value)| vec![*key, *value])
-            .collect()
-    }
-
     fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)> {
         Node::scan(&self.root, key1, key2)
     }
@@ -232,18 +211,8 @@ impl MemoryTable {
     }
 
     fn create_stable(&self, file_name: String) -> SSTable {
-        // println!("started writing");
 
-        // let bytes = self.to_vec();
-        // let bytes = self.scan(i64::MIN, i64::MAX).into_iter().flat_map(|(key, value)| {
-        //     let mut result = [0; 16];
-        //     result[..8].copy_from_slice(&key.to_ne_bytes());
-        //     result[8..].copy_from_slice(&value.to_ne_bytes());
-        //     result
-        // }).collect::<Vec<_>>();
         let file_size = self.cur_size * 16;
-        // let mut file = std::fs::File::create(&file_name).unwrap();
-        // let mut file = BufWriter::new(file);
         match &self.root {
             None => {}
             Some(i) => {
@@ -259,11 +228,6 @@ impl MemoryTable {
                 });
             }
         }
-        // for (key, value) in items {
-        //     file.write_all(&key.to_ne_bytes()).expect("did not write");
-        //     file.write_all(&value.to_ne_bytes()).expect("did not write");
-        // }
-        // println!("ended writing");
         SSTable {
             file_name: file_name,
             file_size: file_size,
@@ -289,7 +253,7 @@ impl SSTable {
         result
     }
     fn get_page_2(&self, key: u64, file: &DmaFile) -> ArrayVec<(i64, i64), VECTOR_SIZE> {
-        let mut executor = LocalExecutor::default();
+        let executor = LocalExecutor::default();
         let mut vec = ArrayVec::new();
         let s = file.read_at_aligned(key * PAGE_SIZE as u64, PAGE_SIZE);
         let s = executor.run(async{
@@ -303,7 +267,6 @@ impl SSTable {
             file
         });
 
-
         for i in (0..s.len()).step_by(16) {
             let key = i64::from_ne_bytes(s[i..i + 8].try_into().unwrap());
             let value = i64::from_ne_bytes(s[i + 8..i + 16].try_into().unwrap());
@@ -311,6 +274,7 @@ impl SSTable {
         }
         vec
     }
+
     fn get_page(&self, key: u64, file: &RandomAccessFile) -> ArrayVec<(i64, i64), VECTOR_SIZE> {
         let mut bytes: Page = Page{
             data: [0; PAGE_SIZE]
@@ -527,7 +491,7 @@ mod tests {
         }
         // dbg!(Node::scan(&Some(node), -10, 10000));
         let mut writer = BufWriter::new(File::create("test.txt").unwrap());
-        node.write_all(&mut writer);
+        // node.write_all(&mut writer);
         let ss_table = SSTable {
             file_name: "test.txt".to_string(),
             file_size: 10000 * 16 * 2,

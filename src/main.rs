@@ -9,6 +9,9 @@ extern crate rand;
 
 
 mod api;
+mod memtablev2;
+mod avl_tree;
+mod write_and_read;
 
 fn main() {
 
