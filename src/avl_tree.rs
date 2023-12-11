@@ -1,6 +1,4 @@
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::future::Future;
-use genawaiter::stack::{Co, Gen, let_gen};
 type Child = Option<Box<Node>>;
 
 struct Node {
@@ -40,7 +38,7 @@ impl Node {
             Some(mut inner_node) => {
                 if key < inner_node.key {
                     inner_node.left = Some(Node::insert(inner_node.left, key, value));
-                } else if (key == inner_node.key) {
+                } else if key == inner_node.key {
                     inner_node.value = value;
                 } else {
                     inner_node.right = Some(Node::insert(inner_node.right, key, value));
@@ -135,14 +133,6 @@ impl Node {
             right.get_all(vec);
         }
     }
-
-    fn get_all_gen(&self) -> impl Iterator<Item = (i64, i64)>{
-        gen {
-            for i in self.get_all(self){
-                yield i;
-            }
-        }
-    }
 }
 struct MemoryTable {
     mem_table_size: usize,
@@ -180,7 +170,6 @@ impl MemoryTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use itertools::assert_equal;
 
     #[test]

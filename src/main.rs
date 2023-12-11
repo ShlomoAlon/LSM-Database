@@ -1,6 +1,5 @@
 mod memtable;
 
-use std::i64::{MAX, MIN};
 use crate::memtable::Database;
 use std::time::Instant;
 use rand::seq::SliceRandom;
@@ -12,6 +11,10 @@ mod api;
 mod memtablev2;
 mod avl_tree;
 mod write_and_read;
+mod cache;
+mod b_tree;
+mod buffered_reader;
+mod buffer;
 
 fn main() {
 
@@ -34,14 +37,14 @@ fn main() {
     dbg!("reached\n");
     let first = std::time::Instant::now();
     // println!("insertion time: {:?}\n", first.duration_since(start));
-    for i in 0..10000{
+    for _i in 0..10000{
         db.scan(0, 1000);
     }
     let one = db.scan(99990, 100000);
-    let two = db.scan(-100000, 1000);
-    let three = db.scan(-100000, 1000);
-    let four = db.scan(-1000, 100000);
-    let five = db.scan(-100000, 1000);
+    let _two = db.scan(-100000, 1000);
+    let _three = db.scan(-100000, 1000);
+    let _four = db.scan(-1000, 100000);
+    let _five = db.scan(-100000, 1000);
     // let one = db.scan(0, 1000000000);
     // let one = db.scan(0, 1000000000);
     // let one = db.scan(0, 1000000000);

@@ -10,10 +10,6 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::io::Write;
 use std::path::Path;
-use std::fs::OpenOptions;
-use std::os::unix::fs::OpenOptionsExt;
-use futures::executor::block_on;
-// use futures_lite::io::AsyncWriteExt;
 use glommio::{
     io::{DmaFile, DmaStreamWriterBuilder},
     LocalExecutor,
@@ -175,7 +171,7 @@ impl Node {
             right.get_all(vec);
         }
     }
-    fn write_all(&self, mut buffer: &mut BufWriter<File>) {
+    fn write_all(&self, buffer: &mut BufWriter<File>) {
         if let Some(left) = &self.left {
             left.write_all(buffer);
         }
@@ -251,7 +247,7 @@ impl MemoryTable {
                 i.get_all(&mut bytes);
                 let executor = LocalExecutor::default();
                 executor.run(async {
-                    let mut file = DmaFile::create(&file_name).await.unwrap();
+                    let file = DmaFile::create(&file_name).await.unwrap();
                     let mut writer = DmaStreamWriterBuilder::new(file).build();
                     writer.write_all(&bytes).await.unwrap();
                     writer.sync().await.unwrap();
@@ -288,29 +284,7 @@ impl SSTable {
         }
         result
     }
-    fn get_page_2(&self, key: u64, file: &DmaFile) -> ArrayVec<(i64, i64), VECTOR_SIZE> {
-        let mut executor = LocalExecutor::default();
-        let mut vec = ArrayVec::new();
-        let s = file.read_at_aligned(key * PAGE_SIZE as u64, PAGE_SIZE);
-        let s = executor.run(async{
 
-            println!("reading");
-            let file = file
-                .read_at(key * PAGE_SIZE as u64, PAGE_SIZE)
-                .await
-                .unwrap();
-            println!("read");
-            file
-        });
-
-
-        for i in (0..s.len()).step_by(16) {
-            let key = i64::from_ne_bytes(s[i..i + 8].try_into().unwrap());
-            let value = i64::from_ne_bytes(s[i + 8..i + 16].try_into().unwrap());
-            vec.push((key, value));
-        }
-        vec
-    }
     fn get_page(&self, key: u64, file: &RandomAccessFile) -> ArrayVec<(i64, i64), VECTOR_SIZE> {
         let mut bytes: Page = Page{
             data: [0; PAGE_SIZE]
@@ -352,12 +326,11 @@ impl SSTable {
         result
     }
     fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)> {
-        let executor = LocalExecutor::default();
         // let file = executor.run(async {
         //     DmaFile::open(&self.file_name).await.unwrap()
         // });
-        let file: File = OpenOptions::new().read(true).custom_flags(libc::O_DIRECT).open(&self.file_name).unwrap();
-        // let file = File::open(&self.file_name).unwrap();
+        // let file: File = OpenOptions::new().read(true).custom_flags(libc::O_DIRECT).open(&self.file_name).unwrap();
+        let file = File::open(&self.file_name).unwrap();
         let file = RandomAccessFile::try_new(file).unwrap();
         let pages_to_search: Vec<_> = (0..(self.file_size + (PAGE_SIZE - 1)) / PAGE_SIZE).collect();
         let mut first_page = ArrayVec::new();
@@ -497,7 +470,7 @@ impl Database {
     }
 
     pub fn get(&self, key: i64) -> Option<i64> {
-        let mut result = self.mem_table.get(key);
+        let result = self.mem_table.get(key);
         if result.is_some() {
             return result;
         }
@@ -517,7 +490,6 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn test_insert() {
