@@ -1,6 +1,100 @@
 use std::cmp::Ordering::{Equal, Greater, Less};
-type Child = Option<Box<Node>>;
+use crate::compaction::LevelIterator;
 
+type Child = Option<Box<Node>>;
+/// iterates over every element in the range [lower_bound, upper_bound]
+/// Does not consume the tree
+/// by default lower_bound is i64::MIN and upper_bound is i64::MAX
+pub struct ScanIter<'a>{
+    lower_bound: i64,
+    upper_bound: i64,
+    parents: Vec<&'a Node>,
+    cur: &'a Child,
+}
+
+impl<'a> ScanIter<'a>{
+    fn new(root: &'a Child) -> Self{
+        ScanIter {
+            lower_bound: i64::MIN,
+            upper_bound: i64::MAX,
+            parents: vec![],
+            cur: &root,
+        }
+    }
+    fn new_with_bounds(root: &'a Child, lower_bound: i64, upper_bound: i64) -> Self {
+        debug_assert!(lower_bound <= upper_bound);
+        ScanIter {
+            lower_bound,
+            upper_bound,
+            parents: vec![],
+            cur: &root,
+        }
+    }
+}
+
+impl <'a> Iterator for ScanIter<'a>{
+    type Item = (i64, i64);
+    fn next(&mut self) -> Option<Self::Item> {
+
+        if let Some(node) = self.cur.as_ref(){
+            if node.key < self.lower_bound{
+                self.cur = &node.right;
+                return self.next();
+            } else if node.key > self.upper_bound{
+                self.cur = &node.left;
+                return self.next();
+            }
+            self.parents.push(node);
+            self.cur = &node.left;
+            self.next()
+        } else {
+            if self.parents.len() == 0{
+                None
+            } else {
+                let node = self.parents.pop().unwrap();
+                let result = Some((node.key, node.value));
+                self.cur = &node.right;
+                result
+            }
+        }
+    }
+}
+/// consuming iterator over every element in the tree
+pub struct NodeIter{
+    parents: Vec<Child>,
+    cur: Child,
+}
+
+impl NodeIter {
+    fn new(root: Node) -> Self {
+        NodeIter {
+            parents: vec![],
+            cur: Some(Box::new(root)),
+        }
+    }
+}
+impl Iterator for NodeIter{
+    type Item = (i64, i64);
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(mut node) = self.cur.take() {
+            let new_cur = node.left.take();
+            self.parents.push(Some(node));
+            self.cur = new_cur;
+            self.next()
+        } else {
+            if self.parents.len() == 0 {
+                None
+            } else {
+                let mut node = self.parents.pop().unwrap().unwrap();
+                let result = Some((node.key, node.value));
+                let new_cur = node.right.take();
+                self.cur = new_cur;
+                result
+            }
+        }
+    }
+}
+#[derive(Debug)]
 struct Node {
     key: i64,
     value: i64,
@@ -8,6 +102,7 @@ struct Node {
     left: Child,
     right: Child,
 }
+
 
 impl Node {
     fn new(key: i64, value: i64) -> Box<Self> {
@@ -18,6 +113,10 @@ impl Node {
             left: None,
             right: None,
         })
+    }
+
+    fn into_iter(self) -> NodeIter{
+        NodeIter::new(self)
     }
 
     fn left_height(&self) -> i64 {
@@ -104,24 +203,8 @@ impl Node {
         }
     }
 
-    fn scan(node: &Child, lower_bound: i64, upper_bound: i64) -> Vec<(i64, i64)> {
-        match node {
-            None => {
-                vec![]
-            }
-            Some(inner) => {
-                if inner.key < lower_bound {
-                    Self::scan(&inner.right, lower_bound, upper_bound)
-                } else if inner.key > upper_bound {
-                    Self::scan(&inner.left, lower_bound, upper_bound)
-                } else {
-                    let mut result = Self::scan(&inner.left, lower_bound, upper_bound);
-                    result.push((inner.key, inner.value));
-                    result.extend(Self::scan(&inner.right, lower_bound, upper_bound));
-                    result
-                }
-            }
-        }
+    fn scan(node: &Child, lower_bound: i64, upper_bound: i64) -> ScanIter {
+        ScanIter::new_with_bounds(node, lower_bound, upper_bound)
     }
     fn get_all(&self, vec: &mut Vec<u8>) {
         if let Some(left) = &self.left {
@@ -134,18 +217,35 @@ impl Node {
         }
     }
 }
-struct MemoryTable {
+pub struct MemoryTable {
     mem_table_size: usize,
     cur_size: usize,
     root: Child,
 }
 
 impl MemoryTable {
-    fn new(mem_table_size: usize) -> Self {
+    pub(crate) fn new(mem_table_size: usize) -> Self {
         MemoryTable {
             mem_table_size: mem_table_size,
             cur_size: 0,
             root: None,
+        }
+    }
+
+    pub fn iter(&self) -> ScanIter {
+        ScanIter::new(&self.root)
+    }
+
+    pub fn into_level_iter(mut self) -> LevelIterator{
+        LevelIterator::Memtable(self.get_iter().unwrap())
+    }
+
+    fn get_iter(&mut self) -> Option<NodeIter>{
+        if self.root.is_none(){
+            None
+        } else {
+            self.cur_size = 0;
+            Some(self.root.take().unwrap().into_iter())
         }
     }
 
@@ -158,7 +258,7 @@ impl MemoryTable {
         true
     }
 
-    fn scan(&self, key1: i64, key2: i64) -> Vec<(i64, i64)> {
+    fn scan(&self, key1: i64, key2: i64) -> ScanIter {
         Node::scan(&self.root, key1, key2)
     }
 
@@ -185,6 +285,57 @@ mod tests {
     }
 
     #[test]
+    pub fn into_iter2(){
+        let num = 2;
+        let mut root = Node::new(0, 0);
+        let mut mem_table = MemoryTable::new(100);
+        for i in 0..num{
+            mem_table.insert(i, i);
+        }
+        let mut root2 = Node::new(0, 0);
+        for i in 1..num{
+            root = Node::insert(Some(root), i, i);
+            root2 = Node::insert(Some(root2), i, i);
+        }
+        let mut iter = mem_table.iter();
+        let mut iter2 = root2.into_iter();
+        for i in 0 .. num{
+            let next = iter2.next();
+            // dbg!(next);
+            // dbg!(iter2.next());
+            assert_eq!(next, Some((i, i)));
+            let next = iter.next();
+            // dbg!(next);
+            // dbg!(iter.next());
+            assert_eq!(next, Some((i, i)));
+        }
+        assert_equal(mem_table.iter(), (0..num).map(|x| (x, x)));
+        assert_equal(root.into_iter(), (0..num).map(|x| (x, x)));
+    }
+    #[test]
+    pub fn into_iter(){
+        let mut root = Node::new(0, 0);
+        let mut root2 = Node::new(0, 0);
+        for i in 1..100{
+            root = Node::insert(Some(root), i, i);
+            root2 = Node::insert(Some(root2), i, i);
+
+        }
+        let mut iter2 = root2.into_iter();
+        for i in 0 .. 100{
+            let next = iter2.next();
+            // dbg!(next);
+            // dbg!(iter2.next());
+            assert_eq!(next, Some((i, i)));
+            // dbg!(next);
+            // dbg!(iter.next());
+        }
+        for i in 0 .. 100{
+        }
+        assert_equal(root.into_iter(), (0..100).map(|x| (x, x)));
+    }
+
+    #[test]
     fn test_scan() {
         let mut mem_table = MemoryTable::new(1000);
         for i in 500..1000 {
@@ -193,6 +344,7 @@ mod tests {
         assert_equal(mem_table.scan(0, 1000), (500..1000).map(|x| (x, x)));
     }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_scan_on_insert_backwards(){
         let mut mem_table = MemoryTable::new(10000);
@@ -202,4 +354,6 @@ mod tests {
         }
         assert_equal(mem_table.scan(0, 10000), (500..10000).map(|x| (x, x)));
     }
+
+
 }

@@ -1,9 +1,11 @@
+#![feature(get_mut_unchecked)]
+#![feature(const_mut_refs)]
+#![feature(const_slice_from_raw_parts_mut)]
+#[macro_use]
+extern crate static_assertions;
 mod memtable;
 
 // use crate::memtable::Database;
-use std::time::Instant;
-use rand::seq::SliceRandom;
-
 extern crate rand;
 
 
@@ -13,9 +15,11 @@ mod avl_tree;
 mod write_and_read;
 mod cache;
 mod b_tree;
-mod buffered_reader;
 mod buffer;
-mod read_write;
+mod cache_trait;
+mod bloom_filter;
+mod compaction;
+mod database;
 
 fn main() {
 

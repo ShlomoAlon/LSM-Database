@@ -125,7 +125,7 @@ impl<T: KeyHash + Eq> Cache<T> {
             bucket.valid = false;
         }
         if !bucket.valid{
-            let mut copy = self.directory[index].clone();
+            let copy = self.directory[index].clone();
             drop(bucket);
             self.directory[index] = Rc::new(RefCell::new(LinkedList::new()));
             let mut bucket = copy.deref().borrow_mut();

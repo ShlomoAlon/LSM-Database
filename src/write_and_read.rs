@@ -21,22 +21,9 @@ impl Reader {
         self.file.metadata().unwrap().len()
     }
 
-    // pub fn read_at_page(&mut self, buffer: &mut Buffer, page_num: u64){
-    //     self.read_at(buffer, page_num * PAGE_SIZE as u64);
-    // }
-    // fn read_at(&mut self, buffer: &mut Buffer, offset: u64){
-    //     debug_assert!(offset % PAGE_SIZE as u64 == 0);
-    //     let result = self.file.read_exact_at(& mut buffer.b, offset);
-    //     match result {
-    //         Ok(_) => {
-    //             buffer.size = PAGE_SIZE;
-    //         }
-    //         Err(err) => {
-    //             let result = self.file.read_at(& mut buffer.b, offset).unwrap();
-    //             buffer.size = result;
-    //         }
-    //     }
-    // }
+    pub fn read_page(&mut self, buffer: &mut Buffer, page_num: u64){
+        self.file.read_exact_at( buffer, page_num * PAGE_SIZE as u64).unwrap();
+    }
 }
 
 pub(crate) struct Writer{
@@ -47,11 +34,25 @@ pub(crate) struct Writer{
 
 impl Writer {
     pub(crate) fn new(file_name: String) -> Self {
-        let file = OpenOptions::new().write(true).create(true).custom_flags(libc::O_DIRECT).truncate(true).open(file_name.to_string()).unwrap();
+        // if fs::metadata(&file_name).is_ok() {
+        //     // If it exists, delete the file
+        //     if let Err(err) = fs::remove_file(&file_name) {
+        //         eprintln!("Error deleting file: {}", err);
+        //     } else {
+        //         println!("File deleted successfully!");
+        //     }
+        // }
+
+        let file = OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_DIRECT).truncate(true).open(file_name.to_string()).unwrap();
+        // let file = File::create(file_name.to_string()).unwrap();
         Self {
             file,
             name: file_name,
         }
+    }
+
+    pub fn write_page(&mut self, buffer: &Buffer){
+        self.file.write_all(buffer).unwrap();
     }
 }
 #[cfg(test)]
@@ -73,7 +74,20 @@ mod tests {
     //     }
     // }
 
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn write_all_ones() {
+        let _ = std::fs::remove_file("test");
+        let mut writer = Writer::new("test".to_string());
+        let mut buffer = Buffer::new();
+        for i in 0..10 {
+            buffer.as_mut_slice_i64().fill(i);
+            writer.write_page(&buffer);
+        }
+        let mut reader = Reader::new("test");
+        for i in 0..10 {
+            reader.read_page(&mut buffer, i);
+            assert_eq!(buffer.as_slice_i64(), &[i as i64; PAGE_SIZE / 8]);
+        }
     }
 }
