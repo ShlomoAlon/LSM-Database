@@ -1,16 +1,36 @@
+#![cfg_attr(target_os = "windows", feature(windows_file_ext))]
+#![cfg_attr(target_os = "linux", feature(unix_file_ext))]
+
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{FileExt, OpenOptionsExt};
+use positioned_io::{RandomAccessFile, ReadAt, Size};
+
+
+// use std::fs::OpenOptions;
+// use std::os::windows::fs::{FileExt, OpenOptionsExt};
+// use std::os::unix::fs::{FileExt, OpenOptionsExt};
 use crate::buffer::{Buffer, PAGE_SIZE};
 
-pub(crate) struct Reader{
-    pub(crate) file: File,
+pub struct Reader{
+    pub(crate) file: RandomAccessFile,
     pub(crate) file_name: String,
 }
 
 impl Reader {
     pub(crate) fn new(file_name: &str) -> Self {
-        let file = OpenOptions::new().read(true).custom_flags(libc::O_DIRECT).open(file_name).unwrap();
+        #[cfg(target_os = "windows")]
+            let file = OpenOptions::new()
+            .read(true)
+            .open(file_name)
+            .unwrap();
+
+        #[cfg(target_os = "linux")]
+            let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECT)
+            .open(file_name)
+            .unwrap();
+        let file = RandomAccessFile::try_new(file).unwrap();
         Self {
             file,
             file_name: file_name.to_string(),
@@ -18,15 +38,15 @@ impl Reader {
     }
 
     pub fn file_size(&self) -> u64{
-        self.file.metadata().unwrap().len()
+        self.file.size().unwrap().unwrap()
     }
 
     pub fn read_page(&mut self, buffer: &mut Buffer, page_num: u64){
-        self.file.read_exact_at( buffer, page_num * PAGE_SIZE as u64).unwrap();
+        self.file.read_exact_at(  page_num * PAGE_SIZE as u64, buffer,).unwrap();
     }
 }
 
-pub(crate) struct Writer{
+pub struct Writer{
     pub file: File,
     pub name: String
 
@@ -42,8 +62,24 @@ impl Writer {
         //         println!("File deleted successfully!");
         //     }
         // }
+        #[cfg(target_os = "windows")]
+            let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .truncate(true)
+            .open(file_name.to_string())
+            .unwrap();
 
-        let file = OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_DIRECT).truncate(true).open(file_name.to_string()).unwrap();
+        #[cfg(target_os = "linux")]
+            let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .custom_flags(libc::O_DIRECT)
+            .truncate(true)
+            .open(file_name.to_string())
+            .unwrap();
+
+
         // let file = File::create(file_name.to_string()).unwrap();
         Self {
             file,

@@ -1,25 +1,29 @@
+#![allow(dead_code)]
+#![feature(test)]
 #![feature(get_mut_unchecked)]
 #![feature(const_mut_refs)]
 #![feature(const_slice_from_raw_parts_mut)]
+#[allow(dead_code)]
 #[macro_use]
 extern crate static_assertions;
+
+
 mod memtable;
 
 // use crate::memtable::Database;
 extern crate rand;
 
 
-mod api;
-mod memtablev2;
-mod avl_tree;
-mod write_and_read;
-mod cache;
-mod b_tree;
-mod buffer;
-mod cache_trait;
-mod bloom_filter;
-mod compaction;
-mod database;
+pub mod memtablev2;
+pub mod avl_tree;
+pub mod write_and_read;
+pub mod cache;
+pub mod b_tree;
+pub mod buffer;
+pub mod cache_trait;
+pub mod bloom_filter;
+pub mod compaction;
+pub mod database;
 
 fn main() {
 

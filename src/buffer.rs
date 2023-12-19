@@ -16,7 +16,7 @@ pub const PAGE_SIZE_I64: usize = 4096 / 8;
 // I'm going to be safe.
 #[repr(C, align(4096))]
 #[derive(Debug, Clone)]
-struct InnerBuffer{
+pub struct InnerBuffer{
     buffer: [u8; PAGE_SIZE],
 }
 

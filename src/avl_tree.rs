@@ -95,7 +95,7 @@ impl Iterator for NodeIter{
     }
 }
 #[derive(Debug)]
-struct Node {
+pub struct Node {
     key: i64,
     value: i64,
     height: i64,
@@ -185,7 +185,7 @@ impl Node {
         top
     }
 
-    fn print_tree(&self, level: usize) {
+    pub fn print_tree(&self, level: usize) {
         if let Some(right) = &self.right {
             right.print_tree(level + 1);
         }
@@ -205,16 +205,6 @@ impl Node {
 
     fn scan(node: &Child, lower_bound: i64, upper_bound: i64) -> ScanIter {
         ScanIter::new_with_bounds(node, lower_bound, upper_bound)
-    }
-    fn get_all(&self, vec: &mut Vec<u8>) {
-        if let Some(left) = &self.left {
-            left.get_all(vec);
-        }
-        vec.extend_from_slice(&mut self.key.to_ne_bytes());
-        vec.extend_from_slice(&mut self.value.to_ne_bytes());
-        if let Some(right) = &self.right {
-            right.get_all(vec);
-        }
     }
 }
 pub struct MemoryTable {
@@ -269,6 +259,7 @@ impl MemoryTable {
 
 #[cfg(test)]
 mod tests {
+    extern crate test;
     use super::*;
     use itertools::assert_equal;
 
@@ -282,6 +273,16 @@ mod tests {
         for i in 0..100 {
             assert_eq!(mem_table.get(i), Some(i));
         }
+    }
+
+    #[bench]
+    fn bench_insert(b: &mut test::Bencher) {
+        let mut mem_table = MemoryTable::new(1000000);
+        b.iter(|| {
+            for i in 0..1000000 {
+                mem_table.insert(i, i);
+            }
+        });
     }
 
     #[test]
@@ -329,8 +330,6 @@ mod tests {
             assert_eq!(next, Some((i, i)));
             // dbg!(next);
             // dbg!(iter.next());
-        }
-        for i in 0 .. 100{
         }
         assert_equal(root.into_iter(), (0..100).map(|x| (x, x)));
     }
