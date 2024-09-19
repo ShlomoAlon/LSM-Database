@@ -21,7 +21,7 @@ impl BloomFilterWriter{
         // dbg!(num_items);
         let mut bloom_filter = Vec::with_capacity(pages as usize);
         for _ in 0..pages{
-            bloom_filter.push(Buffer::new());
+            bloom_filter.push(Buffer::new_0());
         }
         BloomFilterWriter{
             bloom_filter,

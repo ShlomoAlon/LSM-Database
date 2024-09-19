@@ -11,6 +11,9 @@ const_assert!(PAGE_SIZE  % NUM_CACHE_LINES == 0);
 pub const PAGE_SIZE: usize = 4096;
 pub const PAGE_SIZE_I64: usize = 4096 / 8;
 
+pub const TOMBSTONE_U8: u8 = u8::MAX;
+pub const TOMBSTONE: i64 = i64::MAX;
+
 // Note that we shouldn't need to use repr(C, align(4096)) because the buffer is 4096 bytes and
 // it should always be aligned to 4096 bytes. However, I'm not sure if rust guarantees this. So
 // I'm going to be safe.
@@ -65,11 +68,22 @@ pub struct Buffer{
 
 impl Buffer {
     pub fn new() -> Self {
-        Self {
+        let mut result = Self {
             inner_buffer: Rc::new(InnerBuffer {
                 buffer: [0; PAGE_SIZE],
             }),
-        }
+        };
+        result.as_mut_slice_i64().fill(TOMBSTONE);
+        result
+    }
+
+    pub fn new_0() -> Self {
+        let mut result = Self {
+            inner_buffer: Rc::new(InnerBuffer {
+                buffer: [0; PAGE_SIZE],
+            }),
+        };
+        result
     }
     pub fn as_mut_slice<A>(&mut self) -> &mut [A] {
         debug_assert!(Rc::strong_count(&self.inner_buffer) == 1);
@@ -150,7 +164,7 @@ mod tests {
     #[test]
     fn check_empty_buffer(){
         let mut buffer = Buffer::new();
-        assert_eq!(buffer.as_mut_slice_u8(), [0; PAGE_SIZE]);
+        assert_eq!(buffer.as_slice_i64(), [TOMBSTONE; PAGE_SIZE_I64]);
     }
     // use super::*;
     // #[test]

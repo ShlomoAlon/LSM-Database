@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", feature(windows_file_ext))]
 #![cfg_attr(target_os = "linux", feature(unix_file_ext))]
 
+use std::os::unix::fs::OpenOptionsExt;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use positioned_io::{RandomAccessFile, ReadAt, Size};
@@ -11,6 +12,7 @@ use positioned_io::{RandomAccessFile, ReadAt, Size};
 // use std::os::unix::fs::{FileExt, OpenOptionsExt};
 use crate::buffer::{Buffer, PAGE_SIZE};
 
+#[derive(Debug)]
 pub struct Reader{
     pub(crate) file: RandomAccessFile,
     pub(crate) file_name: String,

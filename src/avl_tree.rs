@@ -207,9 +207,10 @@ impl Node {
         ScanIter::new_with_bounds(node, lower_bound, upper_bound)
     }
 }
+#[derive(Debug)]
 pub struct MemoryTable {
     mem_table_size: usize,
-    cur_size: usize,
+    pub(crate) cur_size: usize,
     root: Child,
 }
 
@@ -239,7 +240,7 @@ impl MemoryTable {
         }
     }
 
-    fn insert(&mut self, key: i64, value: i64) -> bool {
+    pub(crate) fn insert(&mut self, key: i64, value: i64) -> bool {
         if self.cur_size >= self.mem_table_size {
             return false;
         }
@@ -248,11 +249,11 @@ impl MemoryTable {
         true
     }
 
-    fn scan(&self, key1: i64, key2: i64) -> ScanIter {
+    pub fn scan(&self, key1: i64, key2: i64) -> ScanIter {
         Node::scan(&self.root, key1, key2)
     }
 
-    fn get(&self, key: i64) -> Option<i64> {
+    pub(crate) fn get(&self, key: i64) -> Option<i64> {
         self.root.as_ref().and_then(|node| node.get(key))
     }
 }

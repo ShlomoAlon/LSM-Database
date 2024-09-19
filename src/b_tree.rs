@@ -5,7 +5,7 @@ use crate::write_and_read::Reader;
 use crate::buffer::{Buffer, PAGE_SIZE_I64};
 use crate::buffer::PAGE_SIZE;
 use crate::cache_trait::Cache;
-use crate::compaction::{LevelIterator, ReaderIterator};
+use crate::compaction::{LevelIterator, ReaderIterator, ScanIterator, PAGE_SIZE_AS_PAIR};
 
 /// used for writing the bottom level of the BTree
 /// Because we don't put the bottom level in the cache, we don't need to reallocate the buffer
@@ -92,6 +92,7 @@ impl LevelWriter{
         }
     }
 }
+#[derive(Debug)]
 pub struct BTreeReader{
     /// the readers for all levels of the BTree. The first reader is the bottom level and the last reader is the top level
     readers: ArrayVec<Reader, 10>,
@@ -132,15 +133,22 @@ impl BTreeReader{
         index
     }
     /// gets the item with the given key if it exists.
-    fn get_item<A: Cache>(& mut self, key: i64, cache: & mut A) -> Option<i64>{
+    pub(crate) fn get_item<A: Cache>(& mut self, key: i64, cache: & mut A) -> Option<i64>{
         let index = self.get_bottom_index(key, cache);
         let buffer = cache.get_page(&mut self.readers[0], index as u64, true, true);
         let item = buffer.as_slice_pair().binary_search_by_key(&key, |i| i.0).ok();
         item.map(|i| buffer.as_slice_pair()[i].1)
     }
 
-    fn into_level_iter(self) -> LevelIterator{
+    pub fn into_level_iter(self) -> LevelIterator{
         LevelIterator::LevelN(ReaderIterator::new(self.readers[0].file_name.clone()))
+    }
+
+    pub fn range<A: Cache>(&mut self, lower_bound: i64, upper_bound: i64, cache: &mut A) -> ScanIterator{
+        let lower_index = self.get_bottom_index(lower_bound, cache) * PAGE_SIZE_AS_PAIR as usize;
+
+        let mut iter = ReaderIterator::new_with_upper_bound(self.readers[0].file_name.clone(), upper_bound, lower_bound, lower_index as u64, Buffer::new());
+        ScanIterator::LevelN(iter)
     }
 
     fn delete(&mut self){
@@ -164,7 +172,7 @@ pub struct BTreeWriter{
     pub top_level: Level0Writer,
 }
 impl BTreeWriter {
-    fn new(file_name_prefix: String) -> BTreeWriter {
+    pub(crate) fn new(file_name_prefix: String) -> BTreeWriter {
         let file_name = format!("{}.items.btree", file_name_prefix);
         let s = BTreeWriter {
             buffers: ArrayVec::new(),
@@ -214,7 +222,7 @@ mod tests {
         // let mut buffer = Buffer::new();
         // file.read_page(&mut buffer, 0);
         // dbg!(buffer.as_slice_i64());
-        let mut reader = BTreeReader::new("testing/test1".to_string(), 1);
+        let mut reader = BTreeReader::new("testing/test1".to_string(), 0);
         for i in 0..PAGE_SIZE/16{
             let item = reader.get_item(i as i64, &mut cache);
             assert_eq!(item, Some((i + 1) as i64));
@@ -243,13 +251,32 @@ mod tests {
 
     #[test]
     fn test_level_3(){
+        if fs::metadata("testing").is_ok() {
+            fs::remove_dir_all("testing").unwrap();
+        }
+        fs::create_dir("testing").unwrap();
         let mut writer = BTreeWriter::new("testing/test3".to_string());
         let mut cache = NoCache;
-        for i in 0..PAGE_SIZE/16 * PAGE_SIZE/8 * 10{
+        let length = PAGE_SIZE/16 * PAGE_SIZE/8 * 10;
+        for i in 0..length{
             writer.add_item((i as i64, (i + 1) as i64), &mut cache);
         }
+        // writer.add_item(((length - 1) as i64, length as i64), &mut cache);
+        // assert_eq!(writer.top_level.size_in_pairs, length as u64 % (PAGE_SIZE_I64 as u64 / 2));
         assert_eq!(writer.finish(&mut cache), 2);
         let mut reader = BTreeReader::new("testing/test3".to_string(), 2);
+        let iter: Vec<_> = reader.into_level_iter().collect();
+        dbg!(iter.len());
+        dbg!(iter[iter.len() - 1]);
+        dbg!(length);
+        for i in 0..length{
+            assert_eq!(iter[i], (i as i64, (i + 1) as i64));
+        }
+        assert_eq!(iter.len(), PAGE_SIZE/16 * PAGE_SIZE/8 * 10);
+        let mut reader = BTreeReader::new("testing/test3".to_string(), 2);
+        assert_eq!(reader.get_item(length as i64 - 10, &mut cache), Some((length - 9) as i64));
+        assert_eq!(reader.readers[0].file_size() /  16, length as u64);
+
         let item = reader.get_item(256 * 256 * 5 + 70 + 1, &mut cache);
         assert_eq!(item, Some(256 * 256 * 5 + 70 + 2));
         let item = reader.get_item(256, &mut cache);
@@ -258,9 +285,118 @@ mod tests {
         assert_eq!(item, Some(256 * 230 + 1));
         let item = reader.get_item(256 * 210 + 70, &mut cache);
         assert_eq!(item, Some(256 * 210 + 70 + 1));
-        reader.delete();
+        // reader.delete();
     }
 }
+
+#[cfg(test)]
+mod tests2 {
+    use super::*;
+    use crate::cache_trait::NoCache;
+
+    fn setup_btree(items: Vec<(i64, i64)>) -> (BTreeReader, NoCache) {
+        let mut cache = NoCache;
+        // remove the testing directory if it exists and create a new one
+        if fs::metadata("testing").is_ok() {
+            fs::remove_dir_all("testing").unwrap();
+        }
+        fs::create_dir("testing").unwrap();
+
+        let mut writer = BTreeWriter::new("testing/range_test".to_string());
+        for item in items {
+            writer.add_item(item, &mut cache);
+        }
+        let levels = writer.finish(&mut cache);
+        let reader = BTreeReader::new("testing/range_test".to_string(), levels);
+        (reader, cache)
+    }
+
+    #[test]
+    fn test_range_single_item() {
+        let (mut reader, mut cache) = setup_btree(vec![(5, 50)]);
+        let result: Vec<_> = reader.range(0, 10, &mut cache).collect();
+        assert_eq!(result, vec![(5, 50)]);
+    }
+
+    #[test]
+    fn test_range_multiple_items() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(2, 6, &mut cache).collect();
+        assert_eq!(result, vec![(3, 30), (5, 50)]);
+    }
+
+    #[test]
+    fn test_range_lower_bound() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(3, 10, &mut cache).collect();
+        assert_eq!(result, vec![(3, 30), (5, 50), (7, 70)]);
+    }
+
+    #[test]
+    fn test_range_upper_bound() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(0, 5, &mut cache).collect();
+        assert_eq!(result, vec![(1, 10), (3, 30), (5, 50)]);
+    }
+
+    #[test]
+    fn test_range_exact_bounds() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(1, 7, &mut cache).collect();
+        assert_eq!(result, vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+    }
+
+    #[test]
+    fn test_range_out_of_bounds() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(10, 20, &mut cache).collect();
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_range_large_dataset() {
+        let items: Vec<_> = (0..10000).map(|i| (i, i * 10)).collect();
+        let (mut reader, mut cache) = setup_btree(items);
+
+        let mut item = reader.get_item(5000, &mut cache);
+        assert_eq!(item, Some(50000));
+        dbg!(item);
+        let result: Vec<_> = reader.range(5000, 5010, &mut cache).collect();
+        assert_eq!(result, vec![(5000, 50000), (5001, 50010), (5002, 50020), (5003, 50030), (5004, 50040), (5005, 50050), (5006, 50060), (5007, 50070), (5008, 50080), (5009, 50090), (5010, 50100)]);
+    }
+
+    #[test]
+    fn test_range_reverse_bounds() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(7, 1, &mut cache).collect();
+        assert_eq!(result, vec![]);
+    }
+
+    #[test]
+    fn test_range_same_bounds() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(5, 5, &mut cache).collect();
+        assert_eq!(result, vec![(5, 50)]);
+    }
+
+    #[test]
+    fn test_range_non_existent_bounds() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (5, 50), (7, 70)]);
+        let result: Vec<_> = reader.range(2, 6, &mut cache).collect();
+        assert_eq!(result, vec![(3, 30), (5, 50)]);
+    }
+
+    #[test]
+    fn test_range_with_duplicates() {
+        let (mut reader, mut cache) = setup_btree(vec![(1, 10), (3, 30), (3, 31), (5, 50), (5, 51), (7, 70)]);
+        let result: Vec<_> = reader.range(2, 6, &mut cache).collect();
+        assert_eq!(result, vec![(3, 30), (3, 31), (5, 50), (5, 51)]);
+    }
+
+    // Clean up after tests
+
+}
+
 
 
 
