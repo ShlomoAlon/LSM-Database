@@ -8,13 +8,13 @@
 extern crate static_assertions;
 
 
-mod memtable;
+// mod memtable;
 
 // use crate::memtable::Database;
 extern crate rand;
 
 
-pub mod memtablev2;
+// pub mod memtablev2;
 pub mod avl_tree;
 pub mod write_and_read;
 pub mod cache;
