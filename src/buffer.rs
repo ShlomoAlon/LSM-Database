@@ -1,12 +1,15 @@
+use crate::bloom_filter::{CACHE_LINE_SIZE_BYTES, NUM_CACHE_LINES};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::slice::{from_raw_parts, from_raw_parts_mut};
-use crate::bloom_filter::{CACHE_LINE_SIZE_BYTES, NUM_CACHE_LINES};
 
 /// represents a cache line
 type CacheLine = [u8; CACHE_LINE_SIZE_BYTES as usize];
-const_assert_eq!(std::mem::size_of::<CacheLine>(), CACHE_LINE_SIZE_BYTES as usize);
-const_assert!(PAGE_SIZE  % NUM_CACHE_LINES == 0);
+const_assert_eq!(
+    std::mem::size_of::<CacheLine>(),
+    CACHE_LINE_SIZE_BYTES as usize
+);
+const_assert!(PAGE_SIZE % NUM_CACHE_LINES == 0);
 
 pub const PAGE_SIZE: usize = 4096;
 pub const PAGE_SIZE_I64: usize = 4096 / 8;
@@ -19,7 +22,7 @@ pub const TOMBSTONE: i64 = i64::MAX;
 // I'm going to be safe.
 #[repr(C, align(4096))]
 #[derive(Debug, Clone)]
-pub struct InnerBuffer{
+pub struct InnerBuffer {
     buffer: [u8; PAGE_SIZE],
 }
 
@@ -34,7 +37,10 @@ impl InnerBuffer {
         // and the alignment of A is less than 4096
         // bytes. and 4096 is a multiple of the size of A.
         unsafe {
-            from_raw_parts_mut(self.buffer.as_mut_ptr() as *mut A, PAGE_SIZE / std::mem::size_of::<A>())
+            from_raw_parts_mut(
+                self.buffer.as_mut_ptr() as *mut A,
+                PAGE_SIZE / std::mem::size_of::<A>(),
+            )
         }
     }
     /// implemented the function here so that I can use the const attribute.
@@ -47,7 +53,10 @@ impl InnerBuffer {
         // and the alignment of A is less than 4096
         // bytes. and 4096 is a multiple of the size of A.
         unsafe {
-            from_raw_parts(self.buffer.as_ptr() as *const A, PAGE_SIZE / std::mem::size_of::<A>())
+            from_raw_parts(
+                self.buffer.as_ptr() as *const A,
+                PAGE_SIZE / std::mem::size_of::<A>(),
+            )
         }
     }
 }
@@ -61,10 +70,9 @@ impl InnerBuffer {
 /// This is very unsafe to read data from disk that has been written on a different endian machine.
 /// So don't do that.
 #[derive(Debug, Clone)]
-pub struct Buffer{
+pub struct Buffer {
     pub(crate) inner_buffer: Rc<InnerBuffer>,
 }
-
 
 impl Buffer {
     pub fn new() -> Self {
@@ -89,11 +97,9 @@ impl Buffer {
         debug_assert!(Rc::strong_count(&self.inner_buffer) == 1);
         // Safety: this function should only ever be called in the context where we haven't added it to the
         // cache yet. And thus never called clone so the strong count is 1.
-        unsafe {
-            Rc::get_mut_unchecked(&mut self.inner_buffer).as_mut_slice()
-        }
+        unsafe { Rc::get_mut_unchecked(&mut self.inner_buffer).as_mut_slice() }
     }
-    pub fn as_slice<A>(& self) -> &[A] {
+    pub fn as_slice<A>(&self) -> &[A] {
         self.inner_buffer.as_slice()
     }
     pub fn as_slice_i64(&self) -> &[i64] {
@@ -115,10 +121,10 @@ impl Buffer {
     pub fn as_slice_u8(&self) -> &[u8] {
         self.as_slice()
     }
-    pub fn as_mut_cache_lines(&mut self) -> &mut [CacheLine]{
+    pub fn as_mut_cache_lines(&mut self) -> &mut [CacheLine] {
         self.as_mut_slice()
     }
-    pub fn as_cache_lines(&self) -> &[CacheLine]{
+    pub fn as_cache_lines(&self) -> &[CacheLine] {
         self.as_slice()
     }
 }
@@ -141,28 +147,31 @@ impl DerefMut for Buffer {
 mod tests {
     use super::*;
     #[test]
-    fn test_buffer(){
+    fn test_buffer() {
         // assert!(false);
         let mut buffer = Buffer::new();
-        for i in 0..PAGE_SIZE_I64{
+        for i in 0..PAGE_SIZE_I64 {
             buffer.as_mut_slice_i64()[i] = i as i64;
         }
-        for i in 0..PAGE_SIZE_I64{
+        for i in 0..PAGE_SIZE_I64 {
             assert_eq!(buffer.as_slice_i64()[i], i as i64);
         }
-        for i in 0..PAGE_SIZE_I64/2{
-            assert_eq!(buffer.as_slice_pair()[i], (i as i64 * 2 as i64, i as i64 * 2 + 1 as i64));
+        for i in 0..PAGE_SIZE_I64 / 2 {
+            assert_eq!(
+                buffer.as_slice_pair()[i],
+                (i as i64 * 2 as i64, i as i64 * 2 + 1 as i64)
+            );
         }
-        for i in 0..PAGE_SIZE_I64/2{
+        for i in 0..PAGE_SIZE_I64 / 2 {
             buffer.as_mut_slice_pair()[i] = (i as i64, i as i64);
         }
-        for i in 0..PAGE_SIZE_I64/2{
+        for i in 0..PAGE_SIZE_I64 / 2 {
             assert_eq!(buffer.as_slice_pair()[i], (i as i64, i as i64));
             assert_eq!(buffer.as_slice_i64()[i * 2], i as i64);
         }
     }
     #[test]
-    fn check_empty_buffer(){
+    fn check_empty_buffer() {
         let mut buffer = Buffer::new();
         assert_eq!(buffer.as_slice_i64(), [TOMBSTONE; PAGE_SIZE_I64]);
     }

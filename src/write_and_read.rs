@@ -1,11 +1,10 @@
 #![cfg_attr(target_os = "windows", feature(windows_file_ext))]
 #![cfg_attr(target_os = "linux", feature(unix_file_ext))]
 
-use std::os::unix::fs::OpenOptionsExt;
+use positioned_io::{RandomAccessFile, ReadAt, Size};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use positioned_io::{RandomAccessFile, ReadAt, Size};
-
+use std::os::unix::fs::OpenOptionsExt;
 
 // use std::fs::OpenOptions;
 // use std::os::windows::fs::{FileExt, OpenOptionsExt};
@@ -13,7 +12,7 @@ use positioned_io::{RandomAccessFile, ReadAt, Size};
 use crate::buffer::{Buffer, PAGE_SIZE};
 
 #[derive(Debug)]
-pub struct Reader{
+pub struct Reader {
     pub(crate) file: RandomAccessFile,
     pub(crate) file_name: String,
 }
@@ -21,13 +20,10 @@ pub struct Reader{
 impl Reader {
     pub(crate) fn new(file_name: &str) -> Self {
         #[cfg(target_os = "windows")]
-            let file = OpenOptions::new()
-            .read(true)
-            .open(file_name)
-            .unwrap();
+        let file = OpenOptions::new().read(true).open(file_name).unwrap();
 
         #[cfg(target_os = "linux")]
-            let file = OpenOptions::new()
+        let file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECT)
             .open(file_name)
@@ -39,19 +35,20 @@ impl Reader {
         }
     }
 
-    pub fn file_size(&self) -> u64{
+    pub fn file_size(&self) -> u64 {
         self.file.size().unwrap().unwrap()
     }
 
-    pub fn read_page(&mut self, buffer: &mut Buffer, page_num: u64){
-        self.file.read_exact_at(  page_num * PAGE_SIZE as u64, buffer,).unwrap();
+    pub fn read_page(&mut self, buffer: &mut Buffer, page_num: u64) {
+        self.file
+            .read_exact_at(page_num * PAGE_SIZE as u64, buffer)
+            .unwrap();
     }
 }
 
-pub struct Writer{
+pub struct Writer {
     pub file: File,
-    pub name: String
-
+    pub name: String,
 }
 
 impl Writer {
@@ -65,7 +62,7 @@ impl Writer {
         //     }
         // }
         #[cfg(target_os = "windows")]
-            let file = OpenOptions::new()
+        let file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .truncate(true)
@@ -73,14 +70,13 @@ impl Writer {
             .unwrap();
 
         #[cfg(target_os = "linux")]
-            let file = OpenOptions::new()
+        let file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .custom_flags(libc::O_DIRECT)
             .truncate(true)
             .open(file_name.to_string())
             .unwrap();
-
 
         // let file = File::create(file_name.to_string()).unwrap();
         Self {
@@ -89,7 +85,7 @@ impl Writer {
         }
     }
 
-    pub fn write_page(&mut self, buffer: &Buffer){
+    pub fn write_page(&mut self, buffer: &Buffer) {
         self.file.write_all(buffer).unwrap();
     }
 }
